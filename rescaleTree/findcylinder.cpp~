@@ -1,0 +1,143 @@
+//This find scale the raw tree scan data from cm to m and change x axix as tree height
+#include <pcl/ModelCoefficients.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/visualization/cloud_viewer.h>
+#include <boost/thread/thread.hpp>
+#include <fstream>
+
+
+typedef pcl::PointXYZ PointT;
+
+int
+main (int argc, char *argv[])
+{
+  // float r; //resolution
+  //r = atof(argv[1]);
+  // All the objects needed
+  pcl::PCDReader reader;
+  pcl::NormalEstimation<PointT, pcl::Normal> ne_1;
+  pcl::NormalEstimation<PointT, pcl::Normal> ne_2;
+  pcl::SACSegmentationFromNormals<PointT, pcl::Normal> seg_1;
+  pcl::SACSegmentationFromNormals<PointT, pcl::Normal> seg_2; 
+  pcl::PCDWriter writer;
+  pcl::ExtractIndices<PointT> extract;
+  pcl::ExtractIndices<pcl::Normal> extract_normals;
+  pcl::search::KdTree<PointT>::Ptr tree_1 (new pcl::search::KdTree<PointT> ());
+  pcl::search::KdTree<PointT>::Ptr tree_2 (new pcl::search::KdTree<PointT> ());
+  // Datasets
+  pcl::PointCloud<PointT>::Ptr cloud (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr cloud_longbranch (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr cloud_temp_1 (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr cloud_temp_2 (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_1 (new pcl::PointCloud<pcl::Normal>);
+  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_2 (new pcl::PointCloud<pcl::Normal>);
+  pcl::ModelCoefficients::Ptr coefficients_cylinder_1 (new pcl::ModelCoefficients);
+  pcl::PointIndices::Ptr inliers_cylinder_1 (new pcl::PointIndices);
+  pcl::ModelCoefficients::Ptr coefficients_cylinder_2 (new pcl::ModelCoefficients);
+  pcl::PointIndices::Ptr inliers_cylinder_2 (new pcl::PointIndices);
+
+
+  pcl::PointXYZ basic_point;
+
+  // Read in the cloud data
+  reader.read ("rawtreetrunk.pcd", *cloud);
+  std::cerr << "Raw Tree Trunk has: " << cloud->points.size () << " data points." << std::endl;
+  reader.read ("rawtreetrunk_longbranch.pcd", *cloud_longbranch);
+  std::cerr << "Raw Tree Trunk with Long Branches has: " << cloud_longbranch->points.size () << " data points." << std::endl;
+  int j = 0;
+
+  //-----------------Find tree cloud dimension
+  float x_min = cloud->points[0].x;
+  float x_max = cloud->points[0].x;
+  float y_min = cloud->points[0].y; 
+  float y_max = cloud->points[0].y;
+  float z_min = cloud->points[0].z; 
+  float z_max = cloud->points[0].z;
+  float x;
+  for (int p = 0; p < cloud->points.size(); ++p){
+    if (cloud->points[p].x < x_min){
+      x_min = cloud->points[p].x;}
+    if (cloud->points[p].x > x_max){
+      x_max = cloud->points[p].x;}
+    if (cloud->points[p].y < y_min){
+      y_min = cloud->points[p].y;}
+    if (cloud->points[p].y > y_max){
+      y_max = cloud->points[p].y;}
+    if (cloud->points[p].z < z_min){
+      z_min = cloud->points[p].z;}
+    if (cloud->points[p].z > z_max){
+      z_max = cloud->points[p].z;}
+  }
+  std::cout << "Raw Tree Dimention Info:" << std::endl;
+  std::cout << "x range: " << x_min << " to " << x_max << std::endl;
+  std::cout << "y range: " << y_min << " to " << y_max << std::endl;
+  std::cout << "z range: " << z_min << " to " << z_max << std::endl;
+  //Tree Dimention :
+  //x range: -105.448 to 362.614
+  //y range: -84.4161 to -5.20214
+  //z range: 164.56 to 244.075
+
+
+  //std::cout << "elevate three pcd z to 0 level..." << std::endl;
+  //-------------------------elevate the tree pcd z to 0 level
+  for (int q = 0; q < cloud->points.size(); ++q){
+    cloud->points[q].x += (-x_min);}
+  for (int q = 0; q < cloud_longbranch->points.size(); ++q){
+    cloud->points[q].x += (-x_min);}
+  //-----------------write elevated value on z to a txt file (this is how much the tree is elevated on positive z direction)
+  std::ofstream outfile;
+  outfile.open("rawprofile.txt");
+  outfile << (-x_min) << "\n";
+
+  //-------------------------resize the pcd format from cm Unit to M Unit
+  for (int q = 0; q < cloud->points.size(); ++q){
+    cloud->points[q].x = cloud->points[q].x/100;
+    cloud->points[q].y = cloud->points[q].y/100;
+    cloud->points[q].z = cloud->points[q].z/100;}
+  for (int q = 0; q < cloud_longbranch->points.size(); ++q){
+    cloud_longbranch->points[q].x = cloud_longbranch->points[q].x/100;
+    cloud_longbranch->points[q].y = cloud_longbranch->points[q].y/100;
+    cloud_longbranch->points[q].z = cloud_longbranch->points[q].z/100;}
+
+  //C-------------------------change axis lable
+  for (int q = 0; q < cloud->points.size(); ++q){
+    x = cloud->points[q].x;
+    cloud->points[q].x = cloud->points[q].z;
+    cloud->points[q].z = x;}
+  for (int q = 0; q < cloud_longbranch->points.size(); ++q){
+    x = cloud_longbranch->points[q].x;
+    cloud_longbranch->points[q].x = cloud_longbranch->points[q].z;
+    cloud_longbranch->points[q].z = x;}
+
+  writer.write ("tree_scaled.pcd", *cloud, false);
+  std::cout << "rescaled and rerotated tree has been written to \"tree_scaled.pcd\"" << std::endl;
+  writer.write ("tree_longbranch_scaled.pcd", *cloud_longbranch, false);
+  std::cout << "rescaled and rerotated tree has been written to \"tree_longbranch_scaled.pcd\"" << std::endl;
+
+  //Graphic Display
+  boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
+  viewer->setBackgroundColor (0, 0, 0);
+  viewer->addPointCloud<pcl::PointXYZ> (cloud, "cloud");
+  viewer->addPointCloud<pcl::PointXYZ> (cloud_longbranch, "cloud2");
+  viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "cloud");
+  viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "cloud2");
+  viewer->addCoordinateSystem (1.0);
+  viewer->initCameraParameters ();
+
+
+  while (!viewer->wasStopped ())
+  {
+    viewer->spinOnce (100);
+    boost::this_thread::sleep (boost::posix_time::microseconds (100000));
+  }
+  return (0);
+
+  
+}

@@ -1,0 +1,148 @@
+//This program transform the individual branch cylinder file into a single file with the following formate:
+//1trunk cylinder index(bottom up fashion) 2branches cylinder index 3cylinderParameter1 4cylinderParameter2 5cylinderParameter3 6cylinderParameter4 7cylinderParameter5 8cylinderParameter6 9cylinderParameter7
+//input arrgument formate:
+//n(number of trunk) mi(number of branches for trunk i, i from 1 to m(total number of branches in trunk i)) file1 file2 file3 ... filen
+
+
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sstream>
+#include <stdlib.h>
+#include <vector> //std::vector
+#include <typeinfo>
+#include <algorithm> //std::sort
+
+int
+main (int argc, char *argv[])
+{
+  std::string z_offset;
+  std::ifstream profile("rawprofile.txt");
+  if (profile.is_open()){
+    getline(profile, z_offset);}
+  profile.close();
+
+
+  int index_trk;
+  index_trk = atoi(argv[1]);
+  //int brchnum;
+  int n_brch;
+  n_brch = atoi(argv[2]);
+  float lowerbound;
+  lowerbound = atof(argv[3]);
+  float upperbound;
+  upperbound = atof(argv[4]);
+  float branchRadiusThreshold;
+  branchRadiusThreshold = atof(argv[5]); 
+
+  std::string line;
+  std::string x;
+  std::string y;
+  std::string a;
+  std::string b;
+  std::string c;
+  std::string bR; //branch radius
+  std::stringstream ss;
+  //ss << argv[1];
+  //  std::ifstream infile(argv[1]);
+  std::ofstream outfile;
+  //std::ifstream infile;
+  
+  outfile.open("Tree_2_Cylinder_B.dat", std::fstream::app);
+  //float x;
+  //float y;
+
+ 
+  std::vector<double> vector;
+  
+  //for (int j = 0; j < n_trk; ++j){
+
+
+    /*
+    //read out branch number in n_trk section
+    ss << "section" << j << "/branchNumber.txt";
+    std::ifstream infile(ss.str().c_str());
+    getline(infile, line);
+    std::cout << "line type is: " << typeid(line).name() << std::endl;
+    brchnum = atoi(line.c_str());
+    std::cout << "branch number in trunk " << j <<  " is " << brchnum << std::endl;
+    infile.close();
+    ss.str("");*/
+
+  
+
+  for (int i = 0; i < n_brch; ++i){
+    ss << "section" << lowerbound << '-' << upperbound << "_branch" << "-" << i << ".txt";
+    std::ifstream iinfile(ss.str().c_str());
+    if (iinfile.is_open()){
+      getline(iinfile, line);
+      getline(iinfile, line);
+      getline(iinfile, line);
+      vector.push_back(atof(line.c_str()));
+      std::cout << "z values for section " << index_trk << " branch " << i << " is " << line << std::endl;}
+    iinfile.close();
+    ss.str("");
+  }
+
+
+  std::sort(vector.begin(), vector.end());
+  for (int i = 0; i < n_brch; ++i){
+    std::cout << "sorted result: " << i << vector.at(i) << std::endl;
+  }
+    
+  int brchNum = 0;
+  for (int p = 0; p < n_brch; ++p){
+    for (int q = 0; q < n_brch; ++q){
+      ss << "section" << lowerbound << '-' << upperbound << "_branch" << "-" << q << ".txt";
+      std::ifstream iinfile(ss.str().c_str());
+      getline(iinfile, x);
+      getline(iinfile, y);
+      getline(iinfile, line);
+      getline(iinfile, a);
+      getline(iinfile, b);
+      getline(iinfile, c);
+      getline(iinfile, bR);
+      
+
+	//std::cout << "line type is: " << typeid(atof(line.c_str())).name() << std::endl;
+	//std::cout << "vector element type is: " << typeid(vector.at(p)).name() << std::endl;
+	//std::cout << "vector(" << p << "): " << vector.at(p) << std::endl;
+	//std::cout << "Branch " << q << ": " << atof(line.c_str()) << std::endl;
+	//std::cout << "compare: " << atof(line.c_str()) == vector.at(p) << std::endl;
+      if (atof(line.c_str()) == vector.at(p)){
+	if (atof(bR.c_str()) < branchRadiusThreshold){
+	  std::cout << "Writting Successful" << std::endl;
+	  //outfile << j << " " << p << " " << x << " " << y << " " << line << " ";
+	  outfile << index_trk << " " << brchNum << " " << atof(line.c_str())*100-atof(z_offset.c_str()) << " " << atof(y.c_str())*100 << " " << atof(x.c_str())*100 << " ";
+	  //getline(iinfile, x);
+	  //outfile << line << " ";
+	  //getline(iinfile, y);
+	  //outfile << line << " ";
+	  //getline(iinfile, line);
+	  outfile << c << " ";
+	  outfile << b << " ";
+	  outfile << a << " ";
+	  //getline(iinfile, line);
+	  outfile << atof(bR.c_str())*100 << " ";
+	  getline(iinfile, line);
+	  outfile << atof(line.c_str())*100 << "\n";
+	  brchNum = brchNum + 1;}}
+	iinfile.close();
+	ss.str("");
+    }
+  }
+    
+
+	  
+
+    vector.clear();
+    
+	
+
+
+    //}
+  outfile.close();
+
+  
+}
+

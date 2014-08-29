@@ -1,0 +1,481 @@
+#include <pcl/ModelCoefficients.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/visualization/cloud_viewer.h>
+#include <boost/thread/thread.hpp>
+#include <math.h>
+#include <cmath> //cos...
+#include <stdlib.h> //abs
+#include <pcl/segmentation/extract_clusters.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/kdtree/kdtree.h>
+#include <limits>
+//#include <utility>
+//#include <tuple>
+//#indlude <>
+
+typedef pcl::PointXYZ PointT;
+
+#define PI 3.14159265;
+
+float p2lDistance(float x0, float y0, float z0, float dx, float dy, float dz, float xp, float yp, float zp);
+float l2lDistance(float x0, float y0, float z0, float a, float b, float c, float x0p, float y0p, float z0p, float ap, float bp, float cp);
+
+int
+main (int argc, char *argv[])
+{
+  float res_lower; 
+  res_lower = atof(argv[1]);
+  float res_upper; 
+  res_upper = atof(argv[2]);
+  float outCutBundary;
+  outCutBundary = atof(argv[3]);
+  float inCutBundary;
+  inCutBundary = atof(argv[4]); // 0.014 works for all sections but 0.84-1.2, so use 0.02 for this section
+  // All the objects needed
+  //float trunkradiuslimitlower;
+  //trunkradiuslimitlower = atof(argv[5]);
+  //float trunkradiuslimitupper;
+  //trunkradiuslimitupper = atof(argv[6]);
+  float clusterTolerance;
+  clusterTolerance = atof(argv[5]);
+  float minClusterSize;
+  minClusterSize = atof(argv[6]);
+  float maxClusterSize;
+  maxClusterSize = atof(argv[7]);
+  float distanceThresholdBranch;
+  distanceThresholdBranch = atof(argv[8]);
+  float branchradiuslimitlower;
+  branchradiuslimitlower = atof(argv[9]);
+  float branchradiuslimitupper;
+  branchradiuslimitupper = atof(argv[10]);
+
+
+  //Branch Verification Parameters:
+
+  // float branchpointsnum; //number of branche for modeling to decide if the branch is eligable for model
+  // branchpointsnum = atoi(argv[8]);
+  // float branchinlierratio; // outlier ratial of branch to decide good or bad
+  // branchinlierratio = atof(argv[9]);
+  // float branchangle; // 0~90 for chosing eligable branch
+  // branchangle = atof(argv[10]);
+  // float branchtrunkratio; //branch radius / trunk radius
+  // branchtrunkratio = atof(argv[11]);
+
+
+
+
+  pcl::PCDReader reader;
+  pcl::NormalEstimation<PointT, pcl::Normal> ne_1;
+  pcl::NormalEstimation<PointT, pcl::Normal> ne_2;
+  pcl::SACSegmentationFromNormals<PointT, pcl::Normal> seg_1;
+  pcl::SACSegmentationFromNormals<PointT, pcl::Normal> seg_2; 
+  pcl::PCDWriter writer;
+  pcl::ExtractIndices<PointT> extract;
+  pcl::ExtractIndices<pcl::Normal> extract_normals;
+  pcl::search::KdTree<PointT>::Ptr tree_1 (new pcl::search::KdTree<PointT> ());
+  pcl::search::KdTree<PointT>::Ptr tree_2 (new pcl::search::KdTree<PointT> ());
+  pcl::search::KdTree<PointT>::Ptr tree_3 (new pcl::search::KdTree<PointT> ());
+  pcl::search::KdTree<PointT>::Ptr tree_4 (new pcl::search::KdTree<PointT> ());
+  // Datasets
+  pcl::PointCloud<PointT>::Ptr cloud (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr cutted_tree_layer_cloud (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr rest_cloud_1 (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr rest_cloud_1_filtered (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr rest_cloud_2 (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr rest_cloud_3 (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr rest_cloud_4 (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr layer_cloud (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr cloud_temp_1 (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr cloud_temp_2 (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_1 (new pcl::PointCloud<pcl::Normal>);
+  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_2 (new pcl::PointCloud<pcl::Normal>);
+  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_3 (new pcl::PointCloud<pcl::Normal>);
+  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_4 (new pcl::PointCloud<pcl::Normal>);
+  pcl::ModelCoefficients::Ptr coefficients_cylinder_1 (new pcl::ModelCoefficients);
+  pcl::PointIndices::Ptr inliers_cylinder_1 (new pcl::PointIndices);
+  pcl::ModelCoefficients::Ptr coefficients_cylinder_2 (new pcl::ModelCoefficients);
+  pcl::PointIndices::Ptr inliers_cylinder_2 (new pcl::PointIndices);
+  pcl::ModelCoefficients::Ptr coefficients_cylinder_3 (new pcl::ModelCoefficients);
+  pcl::PointIndices::Ptr inliers_cylinder_3 (new pcl::PointIndices);
+  pcl::ModelCoefficients::Ptr coefficients_cylinder_4 (new pcl::ModelCoefficients);
+  pcl::PointIndices::Ptr inliers_cylinder_4 (new pcl::PointIndices);
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr layer_cloud_rgb (new pcl::PointCloud<pcl::PointXYZRGB>);
+  pcl::PointCloud<PointT>::Ptr inlier_cloud_1 (new pcl::PointCloud<PointT> ());
+  pcl::PointCloud<PointT>::Ptr inlier_cloud_2 (new pcl::PointCloud<PointT> ());
+  pcl::PointCloud<PointT>::Ptr inlier_cloud_3 (new pcl::PointCloud<PointT> ());
+  pcl::PointCloud<PointT>::Ptr inlier_cloud_4 (new pcl::PointCloud<PointT> ());
+  pcl::ModelCoefficients::Ptr coefficients_cylinder_trunk (new pcl::ModelCoefficients);
+
+  pcl::PointXYZ basic_point;
+  pcl::PointXYZRGB point;
+  // Read in the cloud data
+  reader.read ("tree_longbranch_scaled.pcd", *cloud);
+  std::cerr << "Input PointCloud has: " << cloud->points.size () << " data points." << std::endl;
+  std::stringstream path;
+  std::string line;
+  //std::cout << "res_lower: " << res_lower << std::endl;
+  //std::cout << "res_lower: " << res_lower == 2.01 << std::endl;
+  //path << "cutted_tree_" << res_lower << "-" << res_upper << ".pcd";
+  //path << "../../locateTrunk_1/build/cutted_tree_" << res_lower << "-" << res_upper << ".pcd";
+  //reader.read (path.str(), *cutted_tree_layer_cloud, false);
+
+  /*
+  if (std::fabs(res_lower - 2.01) < std::numeric_limits<float>::epsilon()){
+    std::cout << "in 2.01 option" << std::endl;
+    //path << "../../locateTrunk/build/cutted_tree_" << res_lower << "-" << res_upper << ".pcd";}
+    path << "../../locateTrunk2.01-2.58/build/cutted_tree_" << res_lower << "-" << res_upper << ".pcd";}
+  else{
+    std::cout << "in other option" << std::endl;
+    path << "../../locateTrunk/build/cutted_tree_" << res_lower << "-" << res_upper << ".pcd";}
+    //path << "../../locateTrunk2.01-2.58/build/cutted_tree_" << res_lower << "-" << res_upper << ".pcd";}
+  reader.read (path.str(), *cutted_tree_layer_cloud, false); //*
+
+  //-----------------------------import trunk cylinder model parameters
+  */
+  int j = 0;
+  float cylength = 0.0;
+  path << "cutted_tree_" << res_lower << "-" << res_upper << ".txt";
+  std::ifstream myfile(path.str().c_str());
+  if (myfile.is_open()){
+    for (int i = 0; i < 7; ++i){
+      getline(myfile, line);
+      std::cout << line << "\n";
+      coefficients_cylinder_trunk->values.push_back(atof(line.c_str()));}}
+  //viewer->addCylinder(*coefficients_cylinder_1, ss.str());
+  //coefficients_cylinder_1->values.clear();
+  myfile.close();
+
+  float x0 = coefficients_cylinder_trunk->values[0];
+  float y0 = coefficients_cylinder_trunk->values[1];
+  float z0 = coefficients_cylinder_trunk->values[2];
+  float dx = coefficients_cylinder_trunk->values[3]; //a
+  float dy = coefficients_cylinder_trunk->values[4]; //b
+  float dz = coefficients_cylinder_trunk->values[5]; //c
+  float radius = coefficients_cylinder_trunk->values[6];
+
+  //-------------------------out cut the rawtreetrunk_longbranch section
+  int count;
+  float xp;
+  float yp;
+  count = 0;
+  float t;
+  //pcl::PointCloud<PointT>::Ptr cloud_org (new pcl::PointCloud<PointT>);
+  pcl::PointCloud<PointT>::Ptr cutted_cloud (new pcl::PointCloud<PointT>);
+  //reader.read ("tree_org.pcd", *cloud_org);
+  for (int i = 0; i < cloud->points.size(); ++i){
+    //std::cout << "test0" << std::endl;
+    //std::cout << "z value: " << cloud->points[i].z << std::endl;
+    if (cloud->points[i].z > res_lower && cloud->points[i].z < res_upper){
+      t = (cloud->points[i].z - z0)/dz;
+      xp = cloud->points[i].x - dx*t;
+      yp = cloud->points[i].y - dy*t;
+      //std::cout << "test1" << std::endl;
+      if (pow(xp-x0, 2)+pow(yp-y0, 2) < pow (radius, 2)+ outCutBundary){
+	count += 1;
+	//std::cout << "test2" << std::endl;
+	cutted_cloud->points.push_back(cloud->points[i]);}}}
+  cutted_cloud->width = count;
+  cutted_cloud->height = 1;
+  cutted_cloud->points.resize(count);
+
+  std::stringstream ss;
+  ss << "outCutSection_" << res_lower << "-" <<res_upper << ".pcd";
+  writer.write<pcl::PointXYZ> (ss.str (), *cutted_cloud, false); //*
+  std::cerr<< "in saving out cutted tree" << std::endl;
+  
+
+  
+
+  //==========================================================
+
+
+    float p2l_distance; // point to cylinder centrol axis line distance
+    count = 0;
+      
+    for (int i = 0; i < cutted_cloud->points.size(); ++i){
+      //std::cout << "test1" << std::endl;
+      t = (dx*(cutted_cloud->points[i].x-x0)+dy*(cutted_cloud->points[i].y-y0)+dz*(cutted_cloud->points[i].z-z0))/(pow(dx, 2)+pow(dy, 2)+pow(dz, 2));
+      p2l_distance = pow(x0-cutted_cloud->points[i].x+dx*t, 2)+pow(y0-cutted_cloud->points[i].y+dy*t, 2)+pow(z0-cutted_cloud->points[i].z+dz*t, 2);
+      //std::cerr << "p2l_distance: " << sqrt(p2l_distance) << std::endl;
+      //std::cerr << "r: " << r << std::endl;
+      if (sqrt(p2l_distance) > radius+inCutBundary){ //0.02
+	//std::cout << "test2" << std::endl;
+	count += 1;
+	rest_cloud_1_filtered->points.push_back(cutted_cloud->points[i]);}
+    }
+    rest_cloud_1_filtered->width = count;
+    rest_cloud_1_filtered->height = 1;
+    rest_cloud_1_filtered->points.resize(count);
+    if (rest_cloud_1_filtered->points.size() > 5){
+      writer.write ("rest_cloud_filtered.pcd", *rest_cloud_1_filtered, false);}
+
+    std::cerr << "Current trunk coefficients: " << *coefficients_cylinder_trunk << std::endl;
+    //std::cerr << "Cylinder 1 length: " << cylength << std::endl;
+
+
+    //------------------------------------visulization section
+  //color cloud plot
+  boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
+  viewer->setBackgroundColor (0, 0, 0);
+  //pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgbfield(layer_cloud_rgb);
+  //viewer->addPointCloud<pcl::PointXYZRGB> (layer_cloud_rgb, rgbfield, "sample cloud");
+  // viewer->addPointCloud<pcl::PointXYZ> (inlier_cloud_1, "sample cloud 1");
+  viewer->addPointCloud<pcl::PointXYZ> (cutted_cloud, "org trunk");
+  viewer->addPointCloud<pcl::PointXYZ> (rest_cloud_1_filtered, "branch cloud");
+  viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "org trunk");
+  viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "branch cloud");
+  //viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud 2");
+  //viewer->addCoordinateSystem (1.0);
+  viewer->initCameraParameters ();
+  viewer->addCylinder(*coefficients_cylinder_trunk, "cylinder_1");
+
+  
+  //---------------------------------------segment out clusters
+  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree_seg (new pcl::search::KdTree<pcl::PointXYZ>);
+  tree_seg->setInputCloud (rest_cloud_1_filtered);
+  std::vector<pcl::PointIndices> cluster_indices;
+  pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
+  ec.setClusterTolerance (clusterTolerance); //0.015//0.025 //0.0225 2cm
+  ec.setMinClusterSize (minClusterSize); //20
+  ec.setMaxClusterSize (maxClusterSize); //25000
+  ec.setSearchMethod (tree_seg);
+  ec.setInputCloud (rest_cloud_1_filtered);
+  ec.extract (cluster_indices);
+  j = 0;
+  int branchNumber = 0;
+  for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
+  {
+    std::cout << "\n\n\n" << "Branch " << j << " information: \n" << std::endl;
+    branchNumber += 1;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZ>);
+    for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); pit++)
+      cloud_cluster->points.push_back (rest_cloud_1_filtered->points[*pit]); //*
+    cloud_cluster->width = cloud_cluster->points.size ();
+    cloud_cluster->height = 1;
+    cloud_cluster->is_dense = true;
+
+    std::cerr << "PointCloud representing the Cluster: " << cloud_cluster->points.size () << " data points." << std::endl;
+    std::stringstream ss;
+    ss << "section" << res_lower << "-" << res_upper << "_branch-" << j << ".pcd";
+    writer.write<pcl::PointXYZ> (ss.str (), *cloud_cluster, false); //*
+    //j++;
+    std::cerr<< "in saving clustering loop" << std::endl;
+
+    //do rancac for cylinder
+    pcl::search::KdTree<PointT>::Ptr tree_2 (new pcl::search::KdTree<PointT> ());
+    pcl::PointCloud<pcl::Normal>::Ptr cloud_normals_2 (new pcl::PointCloud<pcl::Normal>);
+    pcl::ModelCoefficients::Ptr coefficients_cylinder_2 (new pcl::ModelCoefficients);
+    pcl::PointIndices::Ptr inliers_cylinder_2 (new pcl::PointIndices);
+    
+    //----------------------------------------------process 1---------------------
+    //RANSAC
+    ne_1.setSearchMethod (tree_2);
+    ne_1.setInputCloud (cloud_cluster);
+    ne_1.setKSearch (50);
+    ne_1.compute (*cloud_normals_2);
+    //Create the segmentation object for cylinder segmentation and set all the parameters
+    seg_1.setOptimizeCoefficients (true);
+    seg_1.setModelType (pcl::SACMODEL_CYLINDER);
+    seg_1.setMethodType (pcl::SAC_RANSAC);
+    seg_1.setNormalDistanceWeight (0.1);
+    seg_1.setMaxIterations (10000);
+    seg_1.setDistanceThreshold (distanceThresholdBranch); //0.05
+    seg_1.setRadiusLimits (branchradiuslimitlower, branchradiuslimitupper); //(0.01, 0.05)
+    //seg_1.setRadiusLimits (0.05, 0.06);
+    seg_1.setInputCloud (cloud_cluster);
+    seg_1.setInputNormals (cloud_normals_2);
+    seg_1.segment (*inliers_cylinder_2, *coefficients_cylinder_2);
+  
+    //find outlier
+    extract.setInputCloud (cloud_cluster);
+    extract.setIndices (inliers_cylinder_2);
+    extract.setNegative (false);
+    extract.filter (*inlier_cloud_2);
+
+    std::cout << "XXXXXXXXinlier number: " << inlier_cloud_2->points.size() << std::endl;
+    std::cout << "XXXXXXXXtotal number: " << cloud_cluster->points.size() << std::endl;
+
+
+    std::cout << "cylinder r: " << coefficients_cylinder_2->values[6] << std::endl;
+
+
+    //find the starting origin
+    float layer_cloud_lowest_z;
+    layer_cloud_lowest_z = cloud_cluster->points[1].z;
+    for (int i = 0; i < cloud_cluster->points.size(); ++i){
+      if (cloud_cluster->points[i].z < layer_cloud_lowest_z){
+	layer_cloud_lowest_z = cloud_cluster->points[i].z;
+	//layer_cloud_lowest_x = cloud_cluster->points[i].x;
+	//layer_cloud_lowest_y = cloud_cluster->points[i].y;
+      }}
+    std::cout << "test0" << std::endl;
+    float layer_cloud_highest_x;
+    float layer_cloud_highest_y;
+    float layer_cloud_highest_z;
+    layer_cloud_highest_z = cloud_cluster->points[1].z;
+    for (int i = 0; i < cloud_cluster->points.size(); ++i){
+    if (cloud_cluster->points[i].z > layer_cloud_lowest_z){
+    	layer_cloud_highest_z = cloud_cluster->points[i].z;
+    	layer_cloud_highest_x = cloud_cluster->points[i].x;
+    	layer_cloud_highest_y = cloud_cluster->points[i].y;}}
+
+    std::cout << "test1" << std::endl;
+    float p = l2lDistance(coefficients_cylinder_trunk->values[0],coefficients_cylinder_trunk->values[1],coefficients_cylinder_trunk->values[2],coefficients_cylinder_trunk->values[3],coefficients_cylinder_trunk->values[4],coefficients_cylinder_trunk->values[5],coefficients_cylinder_2->values[0],coefficients_cylinder_2->values[1],coefficients_cylinder_2->values[2],coefficients_cylinder_2->values[3],coefficients_cylinder_2->values[4],coefficients_cylinder_2->values[5]);
+    std::cout << "test1.1" << std::endl;
+    coefficients_cylinder_2->values[0] = coefficients_cylinder_2->values[0]+p*coefficients_cylinder_2->values[3];
+    std::cout << "test1.2" << std::endl;
+    coefficients_cylinder_2->values[1] = coefficients_cylinder_2->values[1]+p*coefficients_cylinder_2->values[4];
+    std::cout << "test1.3" << std::endl;
+    coefficients_cylinder_2->values[2] = coefficients_cylinder_2->values[2]+p*coefficients_cylinder_2->values[5];
+    
+    if ((layer_cloud_highest_x-coefficients_cylinder_2->values[0])*coefficients_cylinder_2->values[3]+(layer_cloud_highest_y-coefficients_cylinder_2->values[1])*coefficients_cylinder_2->values[4]+(layer_cloud_highest_z-coefficients_cylinder_2->values[2])*coefficients_cylinder_2->values[5] < 0){
+      coefficients_cylinder_2->values[3] = -1 * coefficients_cylinder_2->values[3];
+      coefficients_cylinder_2->values[4] = -1 * coefficients_cylinder_2->values[4];
+      coefficients_cylinder_2->values[5] = -1 * coefficients_cylinder_2->values[5];}    
+
+    std::cout << "x, y z : " << coefficients_cylinder_2->values[0] << " "<< coefficients_cylinder_2->values[0] << " " << coefficients_cylinder_2->values[0] << std::endl;
+
+    //std::cout << "test1" << std::endl;
+
+    //find the length of the cylinder
+    float x0 = coefficients_cylinder_2->values[0];
+    float y0 = coefficients_cylinder_2->values[1];
+    float z0 = coefficients_cylinder_2->values[2];
+    float dx = coefficients_cylinder_2->values[3]; //a
+    float dy = coefficients_cylinder_2->values[4]; //b
+    float dz = coefficients_cylinder_2->values[5]; //c
+    //float radus = coefficients_cylinder_1->values[6];
+    float t;
+    float l_lowest;
+    float l_highest;
+    float distance;
+    int label;
+    t = ((cloud_cluster->points[1].x-x0)*dx + (cloud_cluster->points[1].y-y0)*dy + (cloud_cluster->points[1].z-z0)*dz)/(dx*dx+dy*dy+dz*dz);
+    l_lowest = sqrt(pow((x0+dx*t-x0),2)+pow((y0+dy*t-y0),2)+pow((z0+dz*t-z0),2));
+    l_highest = sqrt(pow((x0+dx*t-x0),2)+pow((y0+dy*t-y0),2)+pow((z0+dz*t-z0),2));
+    for (int i = 0; i < cloud_cluster->points.size(); ++i){
+      t = ((cloud_cluster->points[i].x-x0)*dx + (cloud_cluster->points[i].y-y0)*dy + (cloud_cluster->points[i].z-z0)*dz)/(dx*dx+dy*dy+dz*dz);
+      distance = sqrt(pow((x0+dx*t-x0),2)+pow((y0+dy*t-y0),2)+pow((z0+dz*t-z0),2));
+		    
+      if (l_lowest > distance){
+	l_lowest = distance;
+	label = i;}
+      if (l_highest < distance){
+	l_highest = distance;}
+    }
+
+    std::cout << "test2" << std::endl;
+
+    //find the origin
+    t = ((cloud_cluster->points[label].x-x0)*dx + (cloud_cluster->points[label].y-y0)*dy + (cloud_cluster->points[label].z-z0)*dz)/(dx*dx+dy*dy+dz*dz);
+    coefficients_cylinder_2->values[0] = coefficients_cylinder_2->values[0]+t*coefficients_cylinder_2->values[3];
+    coefficients_cylinder_2->values[1] = coefficients_cylinder_2->values[1]+t*coefficients_cylinder_2->values[4];
+    coefficients_cylinder_2->values[2] = coefficients_cylinder_2->values[2]+t*coefficients_cylinder_2->values[5];
+
+	
+    
+  //std::cerr << "temp_length: " << temp_length << std::endl;
+  cylength = l_highest - l_lowest;
+
+  if (coefficients_cylinder_2->values[6] < 0){
+    coefficients_cylinder_2->values[6] = -1 * coefficients_cylinder_2->values[6];}
+
+
+
+    //Branch verification
+  // std::cout << "---------branch size: " << cloud_cluster->points.size() << std::endl;
+  // std::cout << "---------inlier/total: " << (float)(inlier_cloud_2->points.size())/(float)(cloud_cluster->points.size()) << std::endl;
+  // std::cerr << "---------Cylinder 1 coefficients: " << *coefficients_cylinder_1 << std::endl;
+  // std::cerr << "---------Cylinder 2 coefficients: " << *coefficients_cylinder_2 << std::endl;
+  // std::cout << "---------dot product: " << std::abs(coefficients_cylinder_1->values[3]*coefficients_cylinder_2->values[3]+coefficients_cylinder_1->values[4]*coefficients_cylinder_2->values[4]+coefficients_cylinder_1->values[5]*coefficients_cylinder_2->values[5]) << std::endl;
+  // std::cout << "---------dot product to compare with: " << cos(3.1415926*branchangle/180.0) << std::endl;
+  // std::cout << "---------branch/trunk: " << coefficients_cylinder_2->values[6]/coefficients_cylinder_1->values[6] << std::endl;
+  //if (cloud_cluster->points.size() > branchpointsnum){
+    
+  //if ((float)(inlier_cloud_2->points.size())/(float)(cloud_cluster->points.size()) > branchinlierratio){
+	
+	
+      //viewer->addCylinder(*coefficients_cylinder_2, ss.str ());
+  std::stringstream sss;
+  sss << "section" << res_lower << "-" <<res_upper << "_branch-" << j << ".txt";
+  std::cout << sss.str() << std::endl;
+  std::ofstream myfile;
+  myfile.open(sss.str().c_str());
+  for (int i = 0; i < 7; ++i){
+    myfile << coefficients_cylinder_2->values[i] << "\n";}
+  myfile << cylength << "\n";
+
+      //std::cout << "angle" << cos(3.1415926*branchangle/180.0) << std::endl;
+      // if (std::abs(coefficients_cylinder_1->values[3]*coefficients_cylinder_2->values[3]+coefficients_cylinder_1->values[4]*coefficients_cylinder_2->values[4]+coefficients_cylinder_1->values[5]*coefficients_cylinder_2->values[5]) < cos(3.1415926*branchangle/180.0)){
+      //myfile << 1 << "\n";}
+      //else{
+      //myfile << 0 << "\n";}
+      //if (coefficients_cylinder_2->values[6]/coefficients_cylinder_1->values[6] < branchtrunkratio){
+      //myfile << 1 << "\n";}
+      //else{
+      //myfile << 0 << "\n";}
+
+      //if (std::abs(coefficients_cylinder_1->values[3]*coefficients_cylinder_2->values[3]+coefficients_cylinder_1->values[4]*coefficients_cylinder_2->values[4]+coefficients_cylinder_1->values[5]*coefficients_cylinder_2->values[5]) < cos(3.1415926*branchangle/180.0) && coefficients_cylinder_2->values[6]/coefficients_cylinder_1->values[6] < branchtrunkratio){
+  viewer->addCylinder(*coefficients_cylinder_2, ss.str ());
+  //}
+  
+  myfile.close();
+  j++;
+      //}}
+
+
+
+    //ss << "section" << res_lower << "-" << res_upper << "_branch-" << j << ".pcd";
+
+
+
+  }
+
+  
+  //record the branch number in this section layer
+  std::stringstream bn;
+  //  sss << "section" << res_lower << "-" <<res_upper << "_branch-" << j << ".txt";
+  bn << "branchNumber_section" << res_lower << "-" << res_upper << ".txt";
+  std::ofstream bnmyfile;
+  bnmyfile.open(bn.str().c_str());
+  bnmyfile << branchNumber << "\n";
+  bnmyfile.close();
+  
+
+  while (!viewer->wasStopped ())
+  {
+    viewer->spinOnce (100);
+    boost::this_thread::sleep (boost::posix_time::microseconds (100000));
+  }
+
+
+  return (0);
+}
+
+float p2lDistance (float x0, float y0, float z0, float dx, float dy, float dz, float xp, float yp, float zp)
+{
+  float result;
+  float t;
+  t = (dx*(xp-x0)+dy*(yp-y0)+dz*(zp-z0))/(pow(dx,2)+pow(dy,2)+pow(dz,2));
+  result = sqrt(pow(x0-xp+dx*t,2)+pow(y0-yp+dy*t,2)+pow(z0-zp+dz*t,2));
+  return result;
+}
+
+float l2lDistance(float x0, float y0, float z0, float a, float b, float c, float x0p, float y0p, float z0p, float ap, float bp, float cp){
+  float A;
+  float B;
+  float t1;
+  float t2;
+  A = x0p*a+y0p*b+z0p*c-(x0*a+y0*b+z0*c);
+  B = x0p*ap+y0p*bp+z0p*cp-(x0*ap+y0*bp+z0*cp);
+  t2 = ((a*ap+b*bp+c*cp)*A-(a*a+b*b+c*c)*B)/((ap*ap+bp*bp+cp*cp)*(a*a+b*b+c*c)-(a*ap+b*bp+c*cp)*(a*ap+b*bp+c*cp));
+  t1 = (A+(a*ap+b*bp+c*cp)*t2)/(a*a+b*b+c*c);
+  return t2;
+}
